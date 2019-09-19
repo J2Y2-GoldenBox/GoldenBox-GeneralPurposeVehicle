@@ -10,12 +10,19 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.OvalShape;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.SimpleAdapter;
 import android.widget.Spinner;
 import android.widget.Toast;
 
@@ -29,6 +36,11 @@ import com.google.firebase.iid.FirebaseInstanceId;
 import com.google.firebase.iid.InstanceIdResult;
 import com.google.firebase.messaging.FirebaseMessaging;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
 import static java.sql.DriverManager.println;
 
 public class ReceiveActivity extends AppCompatActivity {
@@ -40,9 +52,10 @@ public class ReceiveActivity extends AppCompatActivity {
     public int alarmDistanceFromStart = 500;
     public int alarmDistanceFromEmergencyCar = 1000;
     public AlarmNotification alarmNotification;
-    public LoadingAnimationView loadingAnimationView;
-    public LinearLayout linearLayout;
-    public Spinner spinner = null;
+    public View view;
+    public ListView listView;
+    public boolean layoutFlag = false;
+    public ArrayList<HashMap<String, String>> caseList;
 
     private final int MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 0;
 
@@ -78,15 +91,17 @@ public class ReceiveActivity extends AppCompatActivity {
                     }
                 });
 
-        linearLayout = findViewById(R.id.linearLayout);
+        LinearLayout linearLayout = findViewById(R.id.linearLayout);
         linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
         linearLayout.setClipToOutline(true);
-        loadingAnimationView = findViewById(R.id.loadingAnimationView);
-    }
 
-    public void setListView(){
-        spinner = new Spinner(ReceiveActivity.this);
-        linearLayout.addView(spinner);
+        LayoutInflater layoutInflater = (LayoutInflater)ReceiveActivity.this.getSystemService(ReceiveActivity.this.LAYOUT_INFLATER_SERVICE);
+        view = layoutInflater.inflate(R.layout.list_view_layout, null, false);
+
+        caseList = new ArrayList<>();
+        SimpleAdapter simpleAdapter = new SimpleAdapter(this, caseList, android.R.layout.simple_list_item_2, new String[]{"title", "message"}, new int[]{android.R.id.text1, android.R.id.text2});
+        listView = view.findViewById(R.id.listView);
+        listView.setAdapter(simpleAdapter);
     }
 
     @Override
@@ -130,14 +145,13 @@ public class ReceiveActivity extends AppCompatActivity {
 
             if (distanceFromEmergency < alarmDistanceFromDestination) {
                 Log.d("distanceToDestination", distanceFromEmergency + "m");
-                makeAlarm("Destination", (int) distanceFromEmergency, dataSnapshot.getKey());
+                makeAlarm("Destination", (int) distanceFromEmergency, dataSnapshot.getKey(), emergencyLocation);
                 updateInfo(dataSnapshot.getKey(), myCurrentLocation, "Destination");
             } else if (distanceFromCenter < distance) {
                 if(distanceFromStart < alarmDistanceFromStart){
-                    makeAlarm("Start", (int) distanceFromEmergency, dataSnapshot.getKey());
+                    makeAlarm("Start", (int) distanceFromEmergency, dataSnapshot.getKey(), startLocation);
                 }
                 Log.d("distanceFromCenter", distanceFromCenter + "m");
-                //firebaseDatabase.getReference("generalUser").child(emergencyLocation.getProvider()).child(token).child("Alarm").setValue("NoAlarm");
                 updateInfo(emergencyLocation.getProvider(), myCurrentLocation, "NoAlarm");
                 firebaseDatabase.getReference(emergencyLocation.getProvider()).addChildEventListener(new childEventListener2());
             }
@@ -227,7 +241,7 @@ public class ReceiveActivity extends AppCompatActivity {
                 });
     }
 
-    public void makeAlarm(String alarm, int distance, String caseNumber){
+    public void makeAlarm(String alarm, int distance, String caseNumber, Location alarmLocation){
         Log.d("CaseNumber", String.valueOf(caseNumber));
         if(!alarm.equals("NoAlarm")) {
             String msg = null;
@@ -243,6 +257,7 @@ public class ReceiveActivity extends AppCompatActivity {
                     break;
             }
             alarmNotification.alarm(msg, caseNumber);
+            addListItem(caseNumber, alarmLocation, alarm);
         }
         else {
             alarmNotification.cancel(caseNumber);
@@ -275,6 +290,55 @@ public class ReceiveActivity extends AppCompatActivity {
         }
 
         Log.d("Intent", intent.getStringExtra("title") + " : " + intent.getStringExtra("body"));
+    }
+
+    public void addListItem(String caseNumber, Location destination, String alarm){
+        for(int i = 0; i < caseList.size(); i++){
+            if(caseList.get(i).get("title").equals(caseNumber)){
+                return;
+            }
+        }
+        Geocoder geocoder = new Geocoder(this);
+        List<Address> addresses = null;
+        String info = alarm + " : ";
+
+        try {
+            addresses = geocoder.getFromLocation(destination.getLatitude(), destination.getLongitude(), 10);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if(addresses != null){
+            if(addresses.size() == 0){
+                info += "주소 정보가 없습니다.";
+            }
+            else{
+                info += addresses.get(0).getAddressLine(0);
+            }
+
+            HashMap hashMap = new HashMap();
+            hashMap.put("title", caseNumber);
+            hashMap.put("message", info);
+            caseList.add(hashMap);
+
+            if(!layoutFlag){
+                setContentView(view);
+            }
+        }
+    }
+
+    public void deleteListItem(String caseNumber){
+        for(int i = 0; i < caseList.size(); i++){
+            if(caseList.get(i).get("title").equals(caseNumber)){
+                caseList.remove(i);
+                break;
+            }
+        }
+        if(caseList.size() == 0){
+            setContentView(R.layout.activity_receive);
+            LinearLayout linearLayout = findViewById(R.id.linearLayout);
+            linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
+            linearLayout.setClipToOutline(true);
+        }
     }
 
     private LocationListener gpsLocationListener = new LocationListener() {
@@ -378,13 +442,13 @@ public class ReceiveActivity extends AppCompatActivity {
                 String alarm = "NoAlarm";
 
                 if(distance < alarmDistanceFromEmergencyCar){
-                    //if(myLocation2 != null && checkRoute(myCurrentLocation, route)) {
+                    if(emergencyLocation2 != null) {
                     if(checkLocation(myCurrentLocation, emergencyLocation, emergencyLocation2)) {
                         alarm = "Car";
                     }
-                    //}
+                    }
                 }
-                makeAlarm(alarm, (int)distance, dataSnapshot.child("caseNumber").getValue().toString());
+                makeAlarm(alarm, (int)distance, dataSnapshot.child("caseNumber").getValue().toString(), emergencyLocation);
                 updateInfo(dataSnapshot.child("caseNumber").getValue().toString(), myCurrentLocation, alarm);
             }
             else if(dataSnapshot.getKey().equals("route")){
@@ -409,7 +473,9 @@ public class ReceiveActivity extends AppCompatActivity {
             }
             else if(dataSnapshot.getKey().equals("finish")){
                 if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
-                    firebaseDatabase.getReference(caseNumber).addChildEventListener(null);
+                    firebaseDatabase.getReference(caseNumber).removeEventListener(this);
+                    deleteListItem(caseNumber);
+                    Log.d("finish", caseNumber);
                 }
             }
         }
@@ -439,13 +505,20 @@ public class ReceiveActivity extends AppCompatActivity {
                     }
                     //}
                 }
-                makeAlarm(alarm, (int)distance, dataSnapshot.child("caseNumber").getValue().toString());
+                makeAlarm(alarm, (int)distance, dataSnapshot.child("caseNumber").getValue().toString(), emergencyLocation);
                 updateInfo(dataSnapshot.child("caseNumber").getValue().toString(), myCurrentLocation, alarm);
             }
             else if(dataSnapshot.getKey().equals("route")){
                 /*GenericTypeIndicator<ArrayList<Map<String, Double>>> t = new GenericTypeIndicator<ArrayList<Map<String, Double>>>() {};
                 route = dataSnapshot.getValue(t);*/
 
+            }
+            else if(dataSnapshot.getKey().equals("finish")){
+                if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
+                    firebaseDatabase.getReference(caseNumber).addChildEventListener(null);
+                    deleteListItem(caseNumber);
+                    Log.d("finish", caseNumber);
+                }
             }
         }
 

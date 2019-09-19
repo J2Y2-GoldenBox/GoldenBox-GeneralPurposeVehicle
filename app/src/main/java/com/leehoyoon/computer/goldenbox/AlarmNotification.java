@@ -66,6 +66,6 @@ public class AlarmNotification {
     }
 
     public void cancel(String caseNumber){
-        notificationManager.cancel(Integer.parseInt(caseNumber.substring(2)));
+        //notificationManager.cancel(Integer.parseInt(caseNumber.substring(2)));
     }
 }
