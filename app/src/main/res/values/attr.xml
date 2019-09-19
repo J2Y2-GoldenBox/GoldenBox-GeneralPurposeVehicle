@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="LoadingView">
+        <attr name="bg" format="reference|integer" />
+        <attr name="img" format="reference|integer" />
+    </declare-styleable>
+
+    <declare-styleable name="LoadingAnimationView">
+        <attr name="during" format="reference|integer" />
+    </declare-styleable>
+</resources>
