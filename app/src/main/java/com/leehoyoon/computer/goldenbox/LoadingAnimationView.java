@@ -89,12 +89,8 @@ public class LoadingAnimationView extends FrameLayout {
     }
 
     public void stopAnimation(){
-        try {
-            animationThread.wait();
-            animationFlag = false;
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        animationThread.interrupt();
+        animationFlag = false;
     }
 
     public void resumeAnimation(){

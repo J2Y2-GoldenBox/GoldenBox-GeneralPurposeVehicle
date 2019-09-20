@@ -52,8 +52,11 @@ public class ReceiveActivity extends AppCompatActivity {
     public int alarmDistanceFromStart = 500;
     public int alarmDistanceFromEmergencyCar = 1000;
     public AlarmNotification alarmNotification;
-    public View view;
+    public LoadingAnimationView loadingAnimationView;
+    public View viewForAnimation;
+    public View viewForList;
     public ListView listView;
+    public SimpleAdapter simpleAdapter;
     public boolean layoutFlag = false;
     public ArrayList<HashMap<String, String>> caseList;
 
@@ -94,14 +97,18 @@ public class ReceiveActivity extends AppCompatActivity {
         LinearLayout linearLayout = findViewById(R.id.linearLayout);
         linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
         linearLayout.setClipToOutline(true);
+        loadingAnimationView = findViewById(R.id.loadingAnimationView);
 
         LayoutInflater layoutInflater = (LayoutInflater)ReceiveActivity.this.getSystemService(ReceiveActivity.this.LAYOUT_INFLATER_SERVICE);
-        view = layoutInflater.inflate(R.layout.list_view_layout, null, false);
+        viewForAnimation = layoutInflater.inflate(R.layout.activity_receive, null, false);
+        viewForList = layoutInflater.inflate(R.layout.list_view_layout, null, false);
 
         caseList = new ArrayList<>();
-        SimpleAdapter simpleAdapter = new SimpleAdapter(this, caseList, android.R.layout.simple_list_item_2, new String[]{"title", "message"}, new int[]{android.R.id.text1, android.R.id.text2});
-        listView = view.findViewById(R.id.listView);
+        simpleAdapter = new SimpleAdapter(this, caseList, android.R.layout.simple_list_item_2, new String[]{"title", "message"}, new int[]{android.R.id.text1, android.R.id.text2});
+        listView = viewForList.findViewById(R.id.listView);
         listView.setAdapter(simpleAdapter);
+
+        firebaseDatabase.getReference("finish").addChildEventListener(finishEventListner);
     }
 
     @Override
@@ -319,9 +326,12 @@ public class ReceiveActivity extends AppCompatActivity {
             hashMap.put("title", caseNumber);
             hashMap.put("message", info);
             caseList.add(hashMap);
+            simpleAdapter.notifyDataSetChanged();
 
             if(!layoutFlag){
-                setContentView(view);
+                loadingAnimationView.stopAnimation();
+                setContentView(viewForList);
+                layoutFlag = true;
             }
         }
     }
@@ -330,14 +340,17 @@ public class ReceiveActivity extends AppCompatActivity {
         for(int i = 0; i < caseList.size(); i++){
             if(caseList.get(i).get("title").equals(caseNumber)){
                 caseList.remove(i);
+                simpleAdapter.notifyDataSetChanged();
                 break;
             }
         }
         if(caseList.size() == 0){
-            setContentView(R.layout.activity_receive);
+            setContentView(viewForAnimation);
             LinearLayout linearLayout = findViewById(R.id.linearLayout);
             linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
             linearLayout.setClipToOutline(true);
+            loadingAnimationView = viewForAnimation.findViewById(R.id.loadingAnimationView);
+            layoutFlag = false;
         }
     }
 
@@ -471,13 +484,13 @@ public class ReceiveActivity extends AppCompatActivity {
                     e.printStackTrace();
                 }*/
             }
-            else if(dataSnapshot.getKey().equals("finish")){
+            /*else if(dataSnapshot.getKey().equals("finish")){
                 if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
                     firebaseDatabase.getReference(caseNumber).removeEventListener(this);
                     deleteListItem(caseNumber);
                     Log.d("finish", caseNumber);
                 }
-            }
+            }*/
         }
 
         @Override
@@ -513,18 +526,45 @@ public class ReceiveActivity extends AppCompatActivity {
                 route = dataSnapshot.getValue(t);*/
 
             }
-            else if(dataSnapshot.getKey().equals("finish")){
+            /*else if(dataSnapshot.getKey().equals("finish")){
                 if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
                     firebaseDatabase.getReference(caseNumber).addChildEventListener(null);
                     deleteListItem(caseNumber);
                     Log.d("finish", caseNumber);
                 }
-            }
+            }*/
         }
 
         @Override
         public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
             alarmNotification.cancel(dataSnapshot.child("caseNumber").getValue().toString());
+        }
+
+        @Override
+        public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+
+        }
+
+        @Override
+        public void onCancelled(@NonNull DatabaseError databaseError) {
+
+        }
+    };
+
+    ChildEventListener finishEventListner = new ChildEventListener() {
+        @Override
+        public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+            deleteListItem(dataSnapshot.getKey());
+        }
+
+        @Override
+        public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+            deleteListItem(dataSnapshot.getKey());
+        }
+
+        @Override
+        public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
+
         }
 
         @Override
