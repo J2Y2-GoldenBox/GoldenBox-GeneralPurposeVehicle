@@ -126,7 +126,7 @@ public class ReceiveActivity extends AppCompatActivity {
         listView.setAdapter(simpleAdapter);
         listView.setOnItemClickListener(new OnListViewListener());
 
-        firebaseDatabase.getReference("finish").addChildEventListener(finishEventListner);
+        firebaseDatabase.getReference("finish").addChildEventListener(finishEventListener);
     }
 
     @Override
@@ -686,7 +686,7 @@ public class ReceiveActivity extends AppCompatActivity {
         }
     };
 
-    ChildEventListener finishEventListner = new ChildEventListener() {
+    ChildEventListener finishEventListener = new ChildEventListener() {
         @Override
         public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
             deleteListItem(dataSnapshot.getKey());

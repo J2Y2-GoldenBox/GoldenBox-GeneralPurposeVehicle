@@ -1,10 +1,12 @@
 package com.leehoyoon.computer.goldenbox;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.FragmentManager;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -15,11 +17,13 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.os.Looper;
-import android.util.Log;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.firebase.database.ChildEventListener;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.FirebaseDatabase;
 import com.naver.maps.geometry.LatLng;
 import com.naver.maps.map.CameraPosition;
 import com.naver.maps.map.MapFragment;
@@ -27,7 +31,6 @@ import com.naver.maps.map.NaverMap;
 import com.naver.maps.map.OnMapReadyCallback;
 import com.naver.maps.map.overlay.Align;
 import com.naver.maps.map.overlay.Marker;
-import com.naver.maps.map.overlay.OverlayImage;
 import com.naver.maps.map.overlay.PathOverlay;
 import com.naver.maps.map.util.MarkerIcons;
 
@@ -44,13 +47,17 @@ public class ShowCaseActivity extends AppCompatActivity implements OnMapReadyCal
     private Location myLocation = null;
     private Location newLocation = null;
     private Marker markerMyLocation;
+    private Marker markerEmergencyCar;
     private LocationThread locationThread = null;
     private final int MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 0;
+    public static Activity mapActivity;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_show_case);
+
+        mapActivity = ShowCaseActivity.this;
 
         Intent intent = new Intent(this.getIntent());
         caseInfo = intent.getParcelableExtra("Information");
@@ -122,7 +129,7 @@ public class ShowCaseActivity extends AppCompatActivity implements OnMapReadyCal
         markerStart.setCaptionAligns(Align.Center);
 
         Marker markerDestination = new Marker(destination);
-        markerDestination.setIcon(MarkerIcons.RED);
+        markerDestination.setIcon(MarkerIcons.BLUE);
         markerDestination.setCaptionText("Destination");
         markerDestination.setCaptionAligns(Align.Center);
 
@@ -131,9 +138,15 @@ public class ShowCaseActivity extends AppCompatActivity implements OnMapReadyCal
         markerMyLocation.setCaptionText("MyLocation");
         markerMyLocation.setCaptionAligns(Align.Center);
 
+        markerEmergencyCar = new Marker(start);
+        markerEmergencyCar.setIcon(MarkerIcons.RED);
+        markerEmergencyCar.setCaptionText("긴급차량");
+        markerEmergencyCar.setCaptionAligns(Align.Center);
+
         markerStart.setMap(map);
         markerDestination.setMap(map);
         markerMyLocation.setMap(map);
+        markerEmergencyCar.setMap(map);
 
         PathOverlay path = new PathOverlay();
         if(caseInfo.getRoute() != null) {
@@ -149,6 +162,11 @@ public class ShowCaseActivity extends AppCompatActivity implements OnMapReadyCal
             locationThread = new LocationThread();
             locationThread.start();
         }
+
+        FirebaseDatabase firebaseDatabase = FirebaseDatabase.getInstance();
+        firebaseDatabase.getReference(caseInfo.getDestination().getProvider()).addChildEventListener(new CaseEventListener());
+        firebaseDatabase.getReference("finish").addChildEventListener(finishEventListener);
+
     }
 
     public Location findMyCurrentPosition() {
@@ -223,12 +241,10 @@ public class ShowCaseActivity extends AppCompatActivity implements OnMapReadyCal
                         @Override
                         public void run() {
                             findMyCurrentPosition();
+                            setMarkerLocation(markerMyLocation, myLocation);
                         }
                     });
-                    if(map != null){
-                        markerMyLocation = new Marker();
-                        markerMyLocation.setPosition(new LatLng(myLocation));
-                    }
+
                     synchronized (this) {
                         wait(1000);
                     }
@@ -238,4 +254,88 @@ public class ShowCaseActivity extends AppCompatActivity implements OnMapReadyCal
             }
         }
     }
+
+    private void setMarkerLocation(Marker marker, Location location){
+        if(map != null){
+            marker.setPosition(new LatLng(location));
+        }
+    }
+
+    private class CaseEventListener implements ChildEventListener {
+
+        public CaseEventListener(){
+        }
+
+        @Override
+        public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+            if(dataSnapshot.getKey().equals("emergencyCarLocation")) {
+                if(!dataSnapshot.child("finish").exists()){
+                    Location location = new Location("emergency");
+                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+
+                    setMarkerLocation(markerEmergencyCar, location);
+                }
+            }
+        }
+
+        @Override
+        public void onChildChanged(@NonNull final DataSnapshot dataSnapshot, @Nullable String s) {
+            if(dataSnapshot.getKey().equals("emergencyLocation")) {
+                if(!dataSnapshot.child("finish").exists()){
+                    Location location = new Location("emergency");
+                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+
+                    setMarkerLocation(markerEmergencyCar, location);
+                }
+            }
+        }
+
+        @Override
+        public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
+
+        }
+
+        @Override
+        public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+
+        }
+
+        @Override
+        public void onCancelled(@NonNull DatabaseError databaseError) {
+
+        }
+    };
+
+    ChildEventListener finishEventListener = new ChildEventListener() {
+        @Override
+        public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+            if(caseInfo.getDestination().getProvider().equals(dataSnapshot.getKey())){
+                finish();
+            }
+        }
+
+        @Override
+        public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+            if(caseInfo.getDestination().getProvider().equals(dataSnapshot.getKey())){
+                finish();
+            }
+        }
+
+        @Override
+        public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
+
+        }
+
+        @Override
+        public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+
+        }
+
+        @Override
+        public void onCancelled(@NonNull DatabaseError databaseError) {
+
+        }
+    };
 }
