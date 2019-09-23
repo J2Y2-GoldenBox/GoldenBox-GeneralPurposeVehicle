@@ -3,6 +3,10 @@ package com.leehoyoon.computer.goldenbox;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.LiveData;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
+import androidx.work.WorkStatus;
 
 import android.Manifest;
 import android.content.Context;
@@ -15,10 +19,13 @@ import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.AdapterView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -32,14 +39,20 @@ import com.google.firebase.database.ChildEventListener;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.GenericTypeIndicator;
 import com.google.firebase.iid.FirebaseInstanceId;
 import com.google.firebase.iid.InstanceIdResult;
 import com.google.firebase.messaging.FirebaseMessaging;
+
+import org.json.JSONArray;
+import org.json.JSONException;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static java.sql.DriverManager.println;
 
@@ -54,11 +67,14 @@ public class ReceiveActivity extends AppCompatActivity {
     public AlarmNotification alarmNotification;
     public LoadingAnimationView loadingAnimationView;
     public View viewForAnimation;
+    public LinearLayout linearLayout;
     public View viewForList;
     public ListView listView;
     public SimpleAdapter simpleAdapter;
     public boolean layoutFlag = false;
     public ArrayList<HashMap<String, String>> caseList;
+    public HashMap<String, CaseInfo> caseInfos;
+    public ChildEventListener childEventListener;
 
     private final int MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 0;
 
@@ -67,13 +83,13 @@ public class ReceiveActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_receive);
 
-        FirebaseMessaging.getInstance().subscribeToTopic("Alarm");
+        Intent intent = new Intent(getApplicationContext(), ForegroundService.class);
+        getApplicationContext().stopService(intent);
 
         firebaseDatabase = FirebaseDatabase.getInstance();
 
+        childEventListener = new DestinationEventListener();
         firebaseDatabase.getReference("destination").addChildEventListener(childEventListener);
-
-        alarmNotification = new AlarmNotification(ReceiveActivity.this, ReceiveActivity.this);
 
         FirebaseInstanceId.getInstance().getInstanceId()
                 .addOnCompleteListener(new OnCompleteListener<InstanceIdResult>() {
@@ -89,24 +105,26 @@ public class ReceiveActivity extends AppCompatActivity {
                             token = task.getResult().getToken();
 
                         // Log and toast
-
+                        //FirebaseMessaging.getInstance().subscribeToTopic(token);
                         Log.d("DeviceToken", token);
                     }
                 });
 
-        LinearLayout linearLayout = findViewById(R.id.linearLayout);
+        linearLayout = findViewById(R.id.linearLayout);
         linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
         linearLayout.setClipToOutline(true);
         loadingAnimationView = findViewById(R.id.loadingAnimationView);
 
-        LayoutInflater layoutInflater = (LayoutInflater)ReceiveActivity.this.getSystemService(ReceiveActivity.this.LAYOUT_INFLATER_SERVICE);
+        LayoutInflater layoutInflater = (LayoutInflater)ReceiveActivity.this.getSystemService(this.LAYOUT_INFLATER_SERVICE);
         viewForAnimation = layoutInflater.inflate(R.layout.activity_receive, null, false);
         viewForList = layoutInflater.inflate(R.layout.list_view_layout, null, false);
 
+        caseInfos = new HashMap<>();
         caseList = new ArrayList<>();
         simpleAdapter = new SimpleAdapter(this, caseList, android.R.layout.simple_list_item_2, new String[]{"title", "message"}, new int[]{android.R.id.text1, android.R.id.text2});
         listView = viewForList.findViewById(R.id.listView);
         listView.setAdapter(simpleAdapter);
+        listView.setOnItemClickListener(new OnListViewListener());
 
         firebaseDatabase.getReference("finish").addChildEventListener(finishEventListner);
     }
@@ -129,8 +147,8 @@ public class ReceiveActivity extends AppCompatActivity {
         }
     }
 
-    public void perceiveEmergencyVehicle(DataSnapshot dataSnapshot, Location emergencyLocation, Location startLocation){
-        if(emergencyLocation.getProvider() != null && token != null) {
+    public void perceiveEmergencyVehicle(DataSnapshot dataSnapshot, Location destinationLocation, Location startLocation){
+        if(destinationLocation.getProvider() != null && token != null) {
             Location myCurrentLocation = findMyCurrentPosition();
 
             if (myCurrentLocation == null) {
@@ -138,29 +156,30 @@ public class ReceiveActivity extends AppCompatActivity {
             }
 
             Location center = new Location("center");
-            center.setLatitude((emergencyLocation.getLatitude() + startLocation.getLatitude()) / 2);
-            center.setLongitude((emergencyLocation.getLongitude() + startLocation.getLongitude()) / 2);
+            center.setLatitude((destinationLocation.getLatitude() + startLocation.getLatitude()) / 2);
+            center.setLongitude((destinationLocation.getLongitude() + startLocation.getLongitude()) / 2);
 
             double distanceFromCenter = distanceByDegree(myCurrentLocation, center);
-            double distance = distanceByDegree(emergencyLocation, startLocation);
+            double distanceBetween = distanceByDegree(destinationLocation, startLocation);
             double distanceFromStart = distanceByDegree(myCurrentLocation, startLocation);
-            double distanceFromEmergency = distanceByDegree(myCurrentLocation, emergencyLocation);
+            double distanceFromEmergency = distanceByDegree(myCurrentLocation, destinationLocation);
 
-            Log.d("distanceWithDestination", distance + "m");
-            Log.d("distanceToDestination", distanceFromEmergency + "m");
-            Log.d("distanceFromCenter", distanceFromCenter + "m");
+            double distance = 0;
+            String alarm = "";
 
             if (distanceFromEmergency < alarmDistanceFromDestination) {
-                Log.d("distanceToDestination", distanceFromEmergency + "m");
-                makeAlarm("Destination", (int) distanceFromEmergency, dataSnapshot.getKey(), emergencyLocation);
-                updateInfo(dataSnapshot.getKey(), myCurrentLocation, "Destination");
-            } else if (distanceFromCenter < distance) {
+                distance = distanceFromEmergency;
+                alarm = "Destination";
+                firebaseDatabase.getReference(destinationLocation.getProvider()).addChildEventListener(new CaseEventListener(destinationLocation, startLocation, distance, alarm));
+            } else if (distanceFromCenter < distanceBetween) {
                 if(distanceFromStart < alarmDistanceFromStart){
-                    makeAlarm("Start", (int) distanceFromEmergency, dataSnapshot.getKey(), startLocation);
+                    distance = distanceFromStart;
+                    alarm = "Start";
                 }
-                Log.d("distanceFromCenter", distanceFromCenter + "m");
-                updateInfo(emergencyLocation.getProvider(), myCurrentLocation, "NoAlarm");
-                firebaseDatabase.getReference(emergencyLocation.getProvider()).addChildEventListener(new childEventListener2());
+                else {
+                    alarm = "NoAlarm";
+                }
+                firebaseDatabase.getReference(destinationLocation.getProvider()).addChildEventListener(new CaseEventListener(destinationLocation, startLocation, distance, alarm));
             }
         }
     }
@@ -248,7 +267,7 @@ public class ReceiveActivity extends AppCompatActivity {
                 });
     }
 
-    public void makeAlarm(String alarm, int distance, String caseNumber, Location alarmLocation){
+    public void makeAlarm(String alarm, int distance, String caseNumber, Location alarmLocation, CaseInfo caseInfo){
         Log.d("CaseNumber", String.valueOf(caseNumber));
         if(!alarm.equals("NoAlarm")) {
             String msg = null;
@@ -263,11 +282,39 @@ public class ReceiveActivity extends AppCompatActivity {
                     msg = alarmDistanceFromStart + "m 근방에서 긴급차량이 출발합니다.";
                     break;
             }
+            alarmNotification = new AlarmNotification(ReceiveActivity.this);
             alarmNotification.alarm(msg, caseNumber);
-            addListItem(caseNumber, alarmLocation, alarm);
+            TextToSpeech textToSpeech;
+            TextToSpeechListener textToSpeechListener = new TextToSpeechListener(caseNumber + "번 사건 " + msg);
+            textToSpeech = new TextToSpeech(getApplicationContext(), textToSpeechListener);
+            textToSpeechListener.setTextToSpeech(textToSpeech);
+
+            addListItem(caseNumber, alarmLocation, caseInfo, alarm);
         }
         else {
-            alarmNotification.cancel(caseNumber);
+            //alarmNotification.cancel(caseNumber);
+            //deleteListItem(caseNumber);
+        }
+    }
+
+    class TextToSpeechListener implements TextToSpeech.OnInitListener{
+        private TextToSpeech textToSpeech;
+        private String msg;
+
+        public TextToSpeechListener(String msg){
+            this.msg = msg;
+        }
+
+        public void setTextToSpeech(TextToSpeech textToSpeech){
+            this.textToSpeech = textToSpeech;
+            textToSpeech.speak(msg, TextToSpeech.QUEUE_FLUSH, null, null);
+        }
+
+        @Override
+        public void onInit(int status) {
+            if(textToSpeech != null) {
+                textToSpeech.speak(msg, TextToSpeech.QUEUE_FLUSH, null, null);
+            }
         }
     }
 
@@ -299,18 +346,15 @@ public class ReceiveActivity extends AppCompatActivity {
         Log.d("Intent", intent.getStringExtra("title") + " : " + intent.getStringExtra("body"));
     }
 
-    public void addListItem(String caseNumber, Location destination, String alarm){
-        for(int i = 0; i < caseList.size(); i++){
-            if(caseList.get(i).get("title").equals(caseNumber)){
-                return;
-            }
-        }
+    public void addListItem(String caseNumber, Location alarmLocation, CaseInfo caseInfo, String alarm){
+        caseInfos.put(caseNumber, caseInfo);
+
         Geocoder geocoder = new Geocoder(this);
         List<Address> addresses = null;
         String info = alarm + " : ";
 
         try {
-            addresses = geocoder.getFromLocation(destination.getLatitude(), destination.getLongitude(), 10);
+            addresses = geocoder.getFromLocation(alarmLocation.getLatitude(), alarmLocation.getLongitude(), 10);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -325,10 +369,21 @@ public class ReceiveActivity extends AppCompatActivity {
             HashMap hashMap = new HashMap();
             hashMap.put("title", caseNumber);
             hashMap.put("message", info);
+
+            for(int i = 0; i < caseList.size(); i++){
+                if(caseList.get(i).get("title").equals(caseNumber)){
+                    caseList.set(i, hashMap);
+                    simpleAdapter.notifyDataSetChanged();
+                    simpleAdapter.notifyDataSetInvalidated();
+                    return;
+                }
+            }
+
             caseList.add(hashMap);
             simpleAdapter.notifyDataSetChanged();
 
             if(!layoutFlag){
+                loadingAnimationView = viewForAnimation.findViewById(R.id.loadingAnimationView);
                 loadingAnimationView.stopAnimation();
                 setContentView(viewForList);
                 layoutFlag = true;
@@ -340,17 +395,22 @@ public class ReceiveActivity extends AppCompatActivity {
         for(int i = 0; i < caseList.size(); i++){
             if(caseList.get(i).get("title").equals(caseNumber)){
                 caseList.remove(i);
+                listView.clearChoices();
                 simpleAdapter.notifyDataSetChanged();
+                simpleAdapter.notifyDataSetInvalidated();
                 break;
             }
         }
-        if(caseList.size() == 0){
-            setContentView(viewForAnimation);
-            LinearLayout linearLayout = findViewById(R.id.linearLayout);
-            linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
-            linearLayout.setClipToOutline(true);
-            loadingAnimationView = viewForAnimation.findViewById(R.id.loadingAnimationView);
-            layoutFlag = false;
+        if(layoutFlag) {
+            if (caseList.size() <= 0) {
+                setContentView(viewForAnimation);
+                linearLayout = findViewById(R.id.linearLayout);
+                linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
+                linearLayout.setClipToOutline(true);
+                loadingAnimationView = viewForAnimation.findViewById(R.id.loadingAnimationView);
+                loadingAnimationView.startAnimation();
+                layoutFlag = false;
+            }
         }
     }
 
@@ -380,40 +440,46 @@ public class ReceiveActivity extends AppCompatActivity {
         }
     };
 
-    private ChildEventListener childEventListener = new ChildEventListener() {
+    class DestinationEventListener implements ChildEventListener {
         @Override
         public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-            Log.d("GPSUpdated", dataSnapshot.getKey() + " : " +dataSnapshot.getValue().toString());
+            if(!dataSnapshot.child("finish").exists()) {
+                Log.d("GPSUpdated", dataSnapshot.getKey() + " : " + dataSnapshot.getValue().toString());
 
-            Log.d("Reference", dataSnapshot.toString());
+                Log.d("Reference", dataSnapshot.toString());
 
-            Location emergencyLocation = new Location(dataSnapshot.getKey());
-            Location startLocation = new Location("emergencyLocation");
-            emergencyLocation.setLatitude(Double.parseDouble(dataSnapshot.child("destinationLatitude").getValue().toString()));
-            emergencyLocation.setLongitude(Double.parseDouble(dataSnapshot.child("destinationLongitude").getValue().toString()));
-            startLocation.setLatitude(Double.parseDouble(dataSnapshot.child("startLatitude").getValue().toString()));
-            startLocation.setLongitude(Double.parseDouble(dataSnapshot.child("startLongitude").getValue().toString()));
+                Location destinationLocation = new Location(dataSnapshot.getKey());
+                Location startLocation = new Location("emergencyLocation");
+                destinationLocation.setLatitude(Double.parseDouble(dataSnapshot.child("destinationLatitude").getValue().toString()));
+                destinationLocation.setLongitude(Double.parseDouble(dataSnapshot.child("destinationLongitude").getValue().toString()));
+                startLocation.setLatitude(Double.parseDouble(dataSnapshot.child("startLatitude").getValue().toString()));
+                startLocation.setLongitude(Double.parseDouble(dataSnapshot.child("startLongitude").getValue().toString()));
 
-            perceiveEmergencyVehicle(dataSnapshot, emergencyLocation, startLocation);
+                perceiveEmergencyVehicle(dataSnapshot, destinationLocation, startLocation);
+            }
+            else{
+                deleteListItem(dataSnapshot.getKey());
+            }
         }
 
         @Override
         public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-            Log.d("GPSUpdated", dataSnapshot.getKey() + " : " +dataSnapshot.getValue().toString());
+            if(!dataSnapshot.child("finish").exists()) {
+                Log.d("GPSUpdated", dataSnapshot.getKey() + " : " + dataSnapshot.getValue().toString());
 
-            Location emergencyLocation = new Location(dataSnapshot.getKey());
-            Location startLocation = new Location("emergencyLocation");
-            emergencyLocation.setLatitude(Double.parseDouble(dataSnapshot.child("destinationLatitude").getValue().toString()));
-            emergencyLocation.setLongitude(Double.parseDouble(dataSnapshot.child("destinationLongitude").getValue().toString()));
-            startLocation.setLatitude(Double.parseDouble(dataSnapshot.child("startLatitude").getValue().toString()));
-            startLocation.setLongitude(Double.parseDouble(dataSnapshot.child("startLongitude").getValue().toString()));
+                Location destinationLocation = new Location(dataSnapshot.getKey());
+                Location startLocation = new Location("emergencyLocation");
+                destinationLocation.setLatitude(Double.parseDouble(dataSnapshot.child("destinationLatitude").getValue().toString()));
+                destinationLocation.setLongitude(Double.parseDouble(dataSnapshot.child("destinationLongitude").getValue().toString()));
+                startLocation.setLatitude(Double.parseDouble(dataSnapshot.child("startLatitude").getValue().toString()));
+                startLocation.setLongitude(Double.parseDouble(dataSnapshot.child("startLongitude").getValue().toString()));
 
-            perceiveEmergencyVehicle(dataSnapshot, emergencyLocation, startLocation);
+                perceiveEmergencyVehicle(dataSnapshot, destinationLocation, startLocation);
+            }
         }
 
         @Override
         public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
-            firebaseDatabase.getReference(dataSnapshot.getKey()).addChildEventListener(null);
 
         }
 
@@ -428,11 +494,24 @@ public class ReceiveActivity extends AppCompatActivity {
         }
     };
 
-    private class childEventListener2 implements ChildEventListener {
+    private class CaseEventListener implements ChildEventListener {
         private Location emergencyLocation = null;
         private Location emergencyLocation2 = null;
-        //ArrayList<Map<String, Double>> route;
+        private Location destination;
+        private Location start;
+        private double distanceFirst;
+        private String alarmFirst;
+        private ArrayList<HashMap<String, Double>> route;
         private String caseNumber = "";
+        private CaseInfo caseInfo = null;
+
+        public CaseEventListener(Location destination, Location start, double distance, String alarm){
+            this.destination = destination;
+            this.start = start;
+            this.distanceFirst = distance;
+            this.alarmFirst = alarm;
+            this.caseNumber = destination.getProvider();
+        }
 
         @Override
         public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
@@ -461,16 +540,19 @@ public class ReceiveActivity extends AppCompatActivity {
                     }
                     }
                 }
-                makeAlarm(alarm, (int)distance, dataSnapshot.child("caseNumber").getValue().toString(), emergencyLocation);
-                updateInfo(dataSnapshot.child("caseNumber").getValue().toString(), myCurrentLocation, alarm);
+                if(caseInfo != null) {
+                    makeAlarm(alarm, (int) distance, caseNumber, emergencyLocation, caseInfo);
+                    updateInfo(caseNumber, myCurrentLocation, alarm);
+                }
             }
             else if(dataSnapshot.getKey().equals("route")){
-                /*//GenericTypeIndicator<ArrayList<Map<String, Double>>> t = new GenericTypeIndicator<ArrayList<Map<String, Double>>>() {};
+                //GenericTypeIndicator<ArrayList<Map<String, Double>>> t = new GenericTypeIndicator<ArrayList<Map<String, Double>>>() {};
                 //route = dataSnapshot.getValue(t);
 
                 String stringRoute = (String)dataSnapshot.getValue();
                 //Log.d("route", stringRoute);
 
+                route = new ArrayList<>();
                 JSONArray jsonRoute = null;
                 try {
                     jsonRoute = new JSONArray(stringRoute);
@@ -479,10 +561,32 @@ public class ReceiveActivity extends AppCompatActivity {
                         JSONArray pathLATLNG = jsonRoute.getJSONArray(i);
                         Double lng = pathLATLNG.getDouble(0);
                         Double lat = pathLATLNG.getDouble(1);
+
+                        HashMap<String, Double> location = new HashMap<>();
+                        location.put("latitude", lat);
+                        location.put("longitude", lng);
+                        route.add(location);
                     }
+
+                    caseInfo = new CaseInfo(start, destination, route);
+                    caseInfos.put(caseNumber, caseInfo);
+                    final Location myCurrentLocation = findMyCurrentPosition();
+                    if(!alarmFirst.equals("NoAlarm")) {
+                        Location location = null;
+                        switch (alarmFirst){
+                            case "Destination":
+                                location = destination;
+                                break;
+                            case "Start":
+                                location = start;
+                        }
+
+                        makeAlarm(alarmFirst, (int) distanceFirst, caseNumber, location, caseInfo);
+                    }
+                    updateInfo(caseNumber, myCurrentLocation, alarmFirst);
                 } catch (JSONException e) {
                     e.printStackTrace();
-                }*/
+                }
             }
             /*else if(dataSnapshot.getKey().equals("finish")){
                 if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
@@ -518,17 +622,48 @@ public class ReceiveActivity extends AppCompatActivity {
                     }
                     //}
                 }
-                makeAlarm(alarm, (int)distance, dataSnapshot.child("caseNumber").getValue().toString(), emergencyLocation);
-                updateInfo(dataSnapshot.child("caseNumber").getValue().toString(), myCurrentLocation, alarm);
+                if(caseInfo != null) {
+                    makeAlarm(alarm, (int) distance, caseNumber, emergencyLocation, caseInfo);
+                    updateInfo(caseNumber, myCurrentLocation, alarm);
+                }
             }
-            else if(dataSnapshot.getKey().equals("route")){
-                /*GenericTypeIndicator<ArrayList<Map<String, Double>>> t = new GenericTypeIndicator<ArrayList<Map<String, Double>>>() {};
-                route = dataSnapshot.getValue(t);*/
+            else if(dataSnapshot.getKey().equals("route")) {
+                //GenericTypeIndicator<ArrayList<Map<String, Double>>> t = new GenericTypeIndicator<ArrayList<Map<String, Double>>>() {};
+                //route = dataSnapshot.getValue(t);
 
+                String stringRoute = (String) dataSnapshot.getValue();
+                //Log.d("route", stringRoute);
+
+                route = new ArrayList<>();
+                JSONArray jsonRoute = null;
+                try {
+                    jsonRoute = new JSONArray(stringRoute);
+
+                    for (int i = 0; i < jsonRoute.length(); i++) {
+                        JSONArray pathLATLNG = jsonRoute.getJSONArray(i);
+                        Double lng = pathLATLNG.getDouble(0);
+                        Double lat = pathLATLNG.getDouble(1);
+
+                        HashMap<String, Double> location = new HashMap<>();
+                        location.put("latitude", lat);
+                        location.put("longitude", lng);
+                        route.add(location);
+                    }
+
+                    caseInfo = new CaseInfo(start, destination, route);
+                    caseInfos.put(caseNumber, caseInfo);
+                    final Location myCurrentLocation = findMyCurrentPosition();
+                    if (!alarmFirst.equals("NoAlarm")) {
+                        makeAlarm(alarmFirst, (int) distanceFirst, caseNumber, emergencyLocation, caseInfo);
+                    }
+                    updateInfo(caseNumber, myCurrentLocation, alarmFirst);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
             /*else if(dataSnapshot.getKey().equals("finish")){
                 if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
-                    firebaseDatabase.getReference(caseNumber).addChildEventListener(null);
+                    firebaseDatabase.getReference(caseNumber).removeEventListener(this);
                     deleteListItem(caseNumber);
                     Log.d("finish", caseNumber);
                 }
@@ -537,7 +672,7 @@ public class ReceiveActivity extends AppCompatActivity {
 
         @Override
         public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
-            alarmNotification.cancel(dataSnapshot.child("caseNumber").getValue().toString());
+            //alarmNotification.cancel(dataSnapshot.child("caseNumber").getValue().toString());
         }
 
         @Override
@@ -577,4 +712,20 @@ public class ReceiveActivity extends AppCompatActivity {
 
         }
     };
+
+    class OnListViewListener implements AdapterView.OnItemClickListener {
+
+        @Override
+        public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+            HashMap<String, String> item = (HashMap)parent.getAdapter().getItem(position);
+
+            CaseInfo caseInfo = caseInfos.get(item.get("title"));
+            Location location = findMyCurrentPosition();
+            Intent intent = new Intent(getApplicationContext(), ShowCaseActivity.class);
+            intent.putExtra("Information", caseInfo);
+            intent.putExtra("MyLocation", location);
+            //intent.setExtrasClassLoader(CaseInfo.class.getClassLoader());
+            startActivity(intent);
+        }
+    }
 }
