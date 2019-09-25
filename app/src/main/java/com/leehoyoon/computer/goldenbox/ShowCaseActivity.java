@@ -17,6 +17,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -269,26 +270,22 @@ public class ShowCaseActivity extends AppCompatActivity implements OnMapReadyCal
         @Override
         public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
             if(dataSnapshot.getKey().equals("emergencyCarLocation")) {
-                if(!dataSnapshot.child("finish").exists()){
-                    Location location = new Location("emergency");
-                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
-                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+                Location location = new Location("emergency");
+                location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+                location.setLongitude(Double.parseDouble(dataSnapshot.child("longitude").getValue().toString()));
 
-                    setMarkerLocation(markerEmergencyCar, location);
-                }
+                setMarkerLocation(markerEmergencyCar, location);
             }
         }
 
         @Override
         public void onChildChanged(@NonNull final DataSnapshot dataSnapshot, @Nullable String s) {
-            if(dataSnapshot.getKey().equals("emergencyLocation")) {
-                if(!dataSnapshot.child("finish").exists()){
-                    Location location = new Location("emergency");
-                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
-                    location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+            if(dataSnapshot.getKey().equals("emergencyCarLocation")) {
+                Location location = new Location("emergency");
+                location.setLatitude(Double.parseDouble(dataSnapshot.child("latitude").getValue().toString()));
+                location.setLongitude(Double.parseDouble(dataSnapshot.child("longitude").getValue().toString()));
 
-                    setMarkerLocation(markerEmergencyCar, location);
-                }
+                setMarkerLocation(markerEmergencyCar, location);
             }
         }
 

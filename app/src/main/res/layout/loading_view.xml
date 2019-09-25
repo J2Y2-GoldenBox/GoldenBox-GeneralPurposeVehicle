@@ -12,6 +12,7 @@
         android:id="@+id/loadingImageView"
         android:layout_width="100dp"
         android:layout_height="100dp"
-        android:contentDescription="@drawable/siren"
+        android:contentDescription="siren"
         app:srcCompat="@drawable/siren" />
+
 </LinearLayout>

@@ -14,7 +14,6 @@
             android:name="com.naver.maps.map.CLIENT_ID"
             android:value="y50jxzx5q3" />
 
-        <activity android:name=".MapActivity"></activity>
         <activity android:name=".ShowCaseActivity" />
         <activity android:name=".ReceiveActivity">
             <intent-filter>

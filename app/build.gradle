@@ -23,7 +23,7 @@ dependencies {
     def work_version = "1.0.0-alpha04"
 
     // 필수1 , java 를 사용한다면 다음의 줄을 추가 하세요
-    implementation "android.arch.work:work-runtime:$work_version"
+    implementation "android.arch.work:work-runtime:1.0.0"
     // 옵션 , Firebase JobDispatcher 를 사용하려면 다음의 줄을 추가 하세요
     implementation "android.arch.work:work-firebase:$work_version"
     implementation fileTree(dir: 'libs', include: ['*.jar'])

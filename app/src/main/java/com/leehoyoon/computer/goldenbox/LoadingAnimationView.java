@@ -10,6 +10,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.animation.AnimationUtils;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -62,12 +63,16 @@ public class LoadingAnimationView extends FrameLayout {
     }
 
     public void initLoadingView(){
+        FrameLayout frameLayout = view.findViewById(R.id.frameLayout);
+        frameLayout.setBackground(new ShapeDrawable(new OvalShape()));
+        frameLayout.setClipToOutline(true);
+
         loadingView1 = view.findViewById(R.id.loadingView1);
         loadingView2 = view.findViewById(R.id.loadingView2);
         loadingView3 = view.findViewById(R.id.loadingView3);
         loadingView4 = view.findViewById(R.id.loadingView4);
 
-        loadingView1.setImageView(R.drawable.siren);
+        loadingView1.setImageView(R.drawable.emergency_kit);
         loadingView1.setBackground(new ShapeDrawable(new OvalShape()));
         loadingView1.setClipToOutline(true);
         loadingView1.setBgColor(Color.RED);
@@ -79,13 +84,13 @@ public class LoadingAnimationView extends FrameLayout {
         loadingView2.setBgColor(Color.YELLOW);
         loadingView2.setTranslationY(startLocation);
 
-        loadingView3.setImageView(R.drawable.siren);
+        loadingView3.setImageView(R.drawable.ambulance);
         loadingView3.setBackground(new ShapeDrawable(new OvalShape()));
         loadingView3.setClipToOutline(true);
         loadingView3.setBgColor(Color.GREEN);
         loadingView3.setTranslationX(startLocation);
 
-        loadingView4.setImageView(R.drawable.siren);
+        loadingView4.setImageView(R.drawable.extinguisher);
         loadingView4.setBackground(new ShapeDrawable(new OvalShape()));
         loadingView4.setClipToOutline(true);
         loadingView4.setBgColor(Color.BLUE);

@@ -3,15 +3,15 @@ package com.leehoyoon.computer.goldenbox;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.lifecycle.LiveData;
-import androidx.work.PeriodicWorkRequest;
+import androidx.cardview.widget.CardView;
+import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
-import androidx.work.WorkStatus;
 
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.OvalShape;
 import android.location.Address;
@@ -21,10 +21,12 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.animation.AnimationUtils;
 import android.widget.AdapterView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -75,16 +77,23 @@ public class ReceiveActivity extends AppCompatActivity {
     public ArrayList<HashMap<String, String>> caseList;
     public HashMap<String, CaseInfo> caseInfos;
     public ChildEventListener childEventListener;
+    private WorkManager workManager;
+    private OneTimeWorkRequest mRequest;
+    private LoadingView loadingView1;
+    private LoadingView loadingView2;
+    public AnimationThread animationThread;
 
     private final int MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_receive);
 
-        Intent intent = new Intent(getApplicationContext(), ForegroundService.class);
-        getApplicationContext().stopService(intent);
+        LayoutInflater layoutInflater = (LayoutInflater)ReceiveActivity.this.getSystemService(this.LAYOUT_INFLATER_SERVICE);
+        viewForAnimation = layoutInflater.inflate(R.layout.activity_receive, null, false);
+        viewForList = layoutInflater.inflate(R.layout.list_view_layout, null, false);
+
+        setContentView(viewForAnimation);
 
         firebaseDatabase = FirebaseDatabase.getInstance();
 
@@ -110,14 +119,13 @@ public class ReceiveActivity extends AppCompatActivity {
                     }
                 });
 
-        linearLayout = findViewById(R.id.linearLayout);
+        /*linearLayout = findViewById(R.id.linearLayout);
         linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
-        linearLayout.setClipToOutline(true);
-        loadingAnimationView = findViewById(R.id.loadingAnimationView);
+        linearLayout.setClipToOutline(true);*/
 
-        LayoutInflater layoutInflater = (LayoutInflater)ReceiveActivity.this.getSystemService(this.LAYOUT_INFLATER_SERVICE);
-        viewForAnimation = layoutInflater.inflate(R.layout.activity_receive, null, false);
-        viewForList = layoutInflater.inflate(R.layout.list_view_layout, null, false);
+        /*loadingAnimationView = findViewById(R.id.loadingAnimationView);
+        loadingAnimationView.setBackground(new ShapeDrawable(new OvalShape()));
+        loadingAnimationView.setClipToOutline(true);*/
 
         caseInfos = new HashMap<>();
         caseList = new ArrayList<>();
@@ -126,7 +134,102 @@ public class ReceiveActivity extends AppCompatActivity {
         listView.setAdapter(simpleAdapter);
         listView.setOnItemClickListener(new OnListViewListener());
 
+        startAnimation();
+
         firebaseDatabase.getReference("finish").addChildEventListener(finishEventListener);
+
+        workManager = WorkManager.getInstance();
+        mRequest = new OneTimeWorkRequest.Builder(BackgroundWorker.class).build();
+    }
+
+    public void startAnimation(){
+        if(!animationFlag) {
+            CardView cardView = viewForAnimation.findViewById(R.id.cardView);
+            cardView.setBackground(new ShapeDrawable(new OvalShape()));
+            cardView.setClipToOutline(true);
+
+            loadingView1 = viewForAnimation.findViewById(R.id.loadingView1);
+            loadingView2 = viewForAnimation.findViewById(R.id.loadingView2);
+
+            //loadingView1.setImageView(R.drawable.emergency_kit);
+            loadingView1.setBgColor(Color.RED);
+
+            //loadingView2.setImageView(R.drawable.siren);
+            loadingView2.setBgColor(Color.YELLOW);
+
+            animationThread = new AnimationThread();
+            animationThread.start();
+            animationFlag = true;
+        }
+    }
+
+    public void stopAnimation(){
+        if(animationFlag) {
+            animationThread.interrupt();
+            animationFlag = false;
+        }
+    }
+
+    class AnimationThread extends Thread {
+        public AnimationThread() {
+            /*new Handler().post(new Runnable() {
+                @Override
+                public void run() {
+                    startAnimation1();
+                }*/
+        }
+
+        @Override
+        public void run() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    startAnimation1();
+                }
+            });
+        }
+    }
+
+    private long animationDuring = 3000;
+    private boolean animationFlag = false;
+
+    public void startAnimation1(){
+        loadingView1.animate().alpha(0)
+                .setDuration(animationDuring)
+                .setInterpolator(AnimationUtils.loadInterpolator(getApplicationContext(), android.R.anim.decelerate_interpolator))
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        loadingView2.bringToFront();
+                        loadingView1.setAlpha(1);
+                        if(animationFlag) {
+                            startAnimation2();
+                        }
+                    }
+                }).start();
+    }
+
+    public void startAnimation2() {
+        loadingView2.animate().alpha(0)
+                .setDuration(animationDuring)
+                .setInterpolator(AnimationUtils.loadInterpolator(getApplicationContext(), android.R.anim.decelerate_interpolator)).
+                withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        loadingView1.bringToFront();
+                        loadingView2.setAlpha(1);
+                        if (animationFlag) {
+                            startAnimation1();
+                        }
+                    }
+                }).start();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+
+        workManager.enqueue(mRequest);
     }
 
     @Override
@@ -137,10 +240,10 @@ public class ReceiveActivity extends AppCompatActivity {
                 if (grantResults.length > 0
                         && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
 
-                    Toast.makeText(this,"위치 권한 승인이 허가되어 있습니다.",Toast.LENGTH_LONG).show();
+                    Toast.makeText(this,"위치 권한 승인이 허가되었습니다.",Toast.LENGTH_LONG).show();
 
                 } else {
-                    Toast.makeText(this,"위치 권한을 아직 승인받지 않았습니다.",Toast.LENGTH_LONG).show();
+                    Toast.makeText(this,"위치 권한이 승인되지 않았습니다.",Toast.LENGTH_LONG).show();
                 }
                 return;
             }
@@ -272,14 +375,19 @@ public class ReceiveActivity extends AppCompatActivity {
         if(!alarm.equals("NoAlarm")) {
             String msg = null;
             switch (alarm) {
-                case "Car":
-                    msg = distance + "m 근방에 긴급차량이 있습니다.";
+                case "Car600":
+                    msg = "600m 근방에 긴급차량이 있습니다.";
+                    alarm = "Car";
+                    break;
+                case "Car300":
+                    msg = "300m 근방에 긴급차량이 있습니다.";
+                    alarm = "Car";
                     break;
                 case "Destination":
-                    msg = alarmDistanceFromDestination + "m 근방에 사고가 일어났습니다.";
+                    msg = distance + "m 근방에 사고가 일어났습니다.";
                     break;
                 case "Start":
-                    msg = alarmDistanceFromStart + "m 근방에서 긴급차량이 출발합니다.";
+                    msg = distance + "m 근방에서 긴급차량이 출발합니다.";
                     break;
             }
             alarmNotification = new AlarmNotification(ReceiveActivity.this);
@@ -383,9 +491,10 @@ public class ReceiveActivity extends AppCompatActivity {
             simpleAdapter.notifyDataSetChanged();
 
             if(!layoutFlag){
-                loadingAnimationView = viewForAnimation.findViewById(R.id.loadingAnimationView);
-                loadingAnimationView.stopAnimation();
+                /*loadingAnimationView = viewForAnimation.findViewById(R.id.loadingAnimationView);
+                loadingAnimationView.stopAnimation();*/
                 setContentView(viewForList);
+                stopAnimation();
                 layoutFlag = true;
             }
         }
@@ -404,11 +513,12 @@ public class ReceiveActivity extends AppCompatActivity {
         if(layoutFlag) {
             if (caseList.size() <= 0) {
                 setContentView(viewForAnimation);
-                linearLayout = findViewById(R.id.linearLayout);
+                /*linearLayout = findViewById(R.id.linearLayout);
                 linearLayout.setBackground(new ShapeDrawable(new OvalShape()));
                 linearLayout.setClipToOutline(true);
                 loadingAnimationView = viewForAnimation.findViewById(R.id.loadingAnimationView);
-                loadingAnimationView.startAnimation();
+                loadingAnimationView.startAnimation();*/
+                startAnimation();
                 layoutFlag = false;
             }
         }
@@ -443,7 +553,7 @@ public class ReceiveActivity extends AppCompatActivity {
     class DestinationEventListener implements ChildEventListener {
         @Override
         public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-            if(!dataSnapshot.child("finish").exists()) {
+            if(!dataSnapshot.child("finish").exists() || dataSnapshot.child("finish").getValue().equals("false")){
                 Log.d("GPSUpdated", dataSnapshot.getKey() + " : " + dataSnapshot.getValue().toString());
 
                 Log.d("Reference", dataSnapshot.toString());
@@ -464,7 +574,7 @@ public class ReceiveActivity extends AppCompatActivity {
 
         @Override
         public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-            if(!dataSnapshot.child("finish").exists()) {
+            if(!dataSnapshot.child("finish").exists() || dataSnapshot.child("finish").getValue().equals("false")){
                 Log.d("GPSUpdated", dataSnapshot.getKey() + " : " + dataSnapshot.getValue().toString());
 
                 Location destinationLocation = new Location(dataSnapshot.getKey());
@@ -504,6 +614,8 @@ public class ReceiveActivity extends AppCompatActivity {
         private ArrayList<HashMap<String, Double>> route;
         private String caseNumber = "";
         private CaseInfo caseInfo = null;
+        private boolean firstAlarmFlag = false;
+        private boolean secondAlarmFlag = false;
 
         public CaseEventListener(Location destination, Location start, double distance, String alarm){
             this.destination = destination;
@@ -531,13 +643,20 @@ public class ReceiveActivity extends AppCompatActivity {
 
                 Log.d("distance", distance + "m");
 
-                String alarm = "NoAlarm";
+                String alarm = alarmFirst;
 
                 if(distance < alarmDistanceFromEmergencyCar){
                     if(emergencyLocation2 != null) {
-                    if(checkLocation(myCurrentLocation, emergencyLocation, emergencyLocation2)) {
-                        alarm = "Car";
-                    }
+                        if(checkLocation(myCurrentLocation, emergencyLocation, emergencyLocation2)) {
+                            if(distance < 300 && !firstAlarmFlag) {
+                                alarm = "Car300";
+                                firstAlarmFlag = true;
+                            }
+                            else if(distance < 600 && !secondAlarmFlag){
+                                alarm = "Car600";
+                                secondAlarmFlag = true;
+                            }
+                        }
                     }
                 }
                 if(caseInfo != null) {
@@ -546,11 +665,7 @@ public class ReceiveActivity extends AppCompatActivity {
                 }
             }
             else if(dataSnapshot.getKey().equals("route")){
-                //GenericTypeIndicator<ArrayList<Map<String, Double>>> t = new GenericTypeIndicator<ArrayList<Map<String, Double>>>() {};
-                //route = dataSnapshot.getValue(t);
-
                 String stringRoute = (String)dataSnapshot.getValue();
-                //Log.d("route", stringRoute);
 
                 route = new ArrayList<>();
                 JSONArray jsonRoute = null;
@@ -580,7 +695,6 @@ public class ReceiveActivity extends AppCompatActivity {
                             case "Start":
                                 location = start;
                         }
-
                         makeAlarm(alarmFirst, (int) distanceFirst, caseNumber, location, caseInfo);
                     }
                     updateInfo(caseNumber, myCurrentLocation, alarmFirst);
@@ -588,13 +702,6 @@ public class ReceiveActivity extends AppCompatActivity {
                     e.printStackTrace();
                 }
             }
-            /*else if(dataSnapshot.getKey().equals("finish")){
-                if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
-                    firebaseDatabase.getReference(caseNumber).removeEventListener(this);
-                    deleteListItem(caseNumber);
-                    Log.d("finish", caseNumber);
-                }
-            }*/
         }
 
         @Override
@@ -616,11 +723,18 @@ public class ReceiveActivity extends AppCompatActivity {
                 String alarm = "NoAlarm";
 
                 if(distance < alarmDistanceFromEmergencyCar){
-                    //if(myLocation2 != null && checkRoute(myCurrentLocation, route)) {
-                    if(checkLocation(myCurrentLocation, emergencyLocation, emergencyLocation2)) {
-                        alarm = "Car";
+                    if(emergencyLocation2 != null) {
+                        if(checkLocation(myCurrentLocation, emergencyLocation, emergencyLocation2)) {
+                            if(distance < 300 && !firstAlarmFlag) {
+                                alarm = "Car300";
+                                firstAlarmFlag = true;
+                            }
+                            else if(distance < 600 && !secondAlarmFlag){
+                                alarm = "Car600";
+                                secondAlarmFlag = true;
+                            }
+                        }
                     }
-                    //}
                 }
                 if(caseInfo != null) {
                     makeAlarm(alarm, (int) distance, caseNumber, emergencyLocation, caseInfo);
@@ -628,11 +742,7 @@ public class ReceiveActivity extends AppCompatActivity {
                 }
             }
             else if(dataSnapshot.getKey().equals("route")) {
-                //GenericTypeIndicator<ArrayList<Map<String, Double>>> t = new GenericTypeIndicator<ArrayList<Map<String, Double>>>() {};
-                //route = dataSnapshot.getValue(t);
-
                 String stringRoute = (String) dataSnapshot.getValue();
-                //Log.d("route", stringRoute);
 
                 route = new ArrayList<>();
                 JSONArray jsonRoute = null;
@@ -653,21 +763,22 @@ public class ReceiveActivity extends AppCompatActivity {
                     caseInfo = new CaseInfo(start, destination, route);
                     caseInfos.put(caseNumber, caseInfo);
                     final Location myCurrentLocation = findMyCurrentPosition();
-                    if (!alarmFirst.equals("NoAlarm")) {
-                        makeAlarm(alarmFirst, (int) distanceFirst, caseNumber, emergencyLocation, caseInfo);
+                    if(!alarmFirst.equals("NoAlarm")) {
+                        Location location = null;
+                        switch (alarmFirst){
+                            case "Destination":
+                                location = destination;
+                                break;
+                            case "Start":
+                                location = start;
+                        }
+                        makeAlarm(alarmFirst, (int) distanceFirst, caseNumber, location, caseInfo);
                     }
                     updateInfo(caseNumber, myCurrentLocation, alarmFirst);
                 } catch (JSONException e) {
                     e.printStackTrace();
                 }
             }
-            /*else if(dataSnapshot.getKey().equals("finish")){
-                if(!caseNumber.equals("") && dataSnapshot.getValue().equals("true")){
-                    firebaseDatabase.getReference(caseNumber).removeEventListener(this);
-                    deleteListItem(caseNumber);
-                    Log.d("finish", caseNumber);
-                }
-            }*/
         }
 
         @Override
@@ -724,7 +835,6 @@ public class ReceiveActivity extends AppCompatActivity {
             Intent intent = new Intent(getApplicationContext(), ShowCaseActivity.class);
             intent.putExtra("Information", caseInfo);
             intent.putExtra("MyLocation", location);
-            //intent.setExtrasClassLoader(CaseInfo.class.getClassLoader());
             startActivity(intent);
         }
     }
